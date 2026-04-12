@@ -1,0 +1,427 @@
+import subprocess #to enable use of command prompt
+import torchaudio #provides basic info about audio
+import sounddevice as sd # imports soiund device which enables playing audio in python and saves it as somewhat of a variable called sd so typing it takes less time.
+import librosa #for handling pitch and identifing notes
+import math
+import time
+import numpy as np #to calculate percentiles for note durations. That way, the minimum diuration threshold can adapt to any song as some songs are fatser than others
+
+elements of instructions to be run in cmd prompt behind the scenes
+audio_path = r"C:\Users\OLUWANIFEMI\Downloads\soykhaler-intro-guitar-385396.mp3" #stores location of audio to be split into stems
+command = ["demucs",
+           "-n", "htdemucs",
+           "--mp3",
+           audio_path
+] 
+subprocess.run(command) #calls command prompt behind the scenes to run demucs
+guitar_path = r"C:/Users/OLUWANIFEMI/Documents/Music app/separated/htdemucs/soykhaler-intro-guitar-385396/other.mp3" #stores path to other stem which contains the gutar or mostkly guitar audio
+waveform, sample_rate = torchaudio.load(guitar_path)
+print(waveform.shape) #waveform stores no_ of channels and and no) of samples in that order.
+print(sample_rate)
+
+sd.play(waveform.T, sample_rate) #plays audio
+sd.wait() #pauses python processes while audio is playing
+
+waveform, sample_rate = librosa.load(guitar_path, sr=None) #libros automatically changes the sample rate to 22050. In order to maintain accuracy, you enter NONE which tells librosa to use the original sample_rate
+
+#This section uses librosa.pyin to obtain 3 arrays containing pitch,whether or not a pitch was detected, and the probility of accuracy stored in pitch_data, note_dtected and confidence respectively
+pitch_data, note_detected, confidence = librosa.pyin(
+    waveform,
+    fmin = 82.4,
+    fmax = 1318.5,
+    sr = sample_rate,
+)
+
+midi_num = []
+for pitch in pitch_data:
+    try:
+        midi_num.append(round((12 * math.log((pitch/440), 2))+69)) #formula for converting from pitch to midi numbers
+    except:
+        midi_num.append(-1)
+
+
+##Relationships: 
+##1 frame - 511.83 samples
+##1 frame - 0.0116 secs
+##Threshholds:
+##shortest moment of silence: 0.2 secs - 18 frames
+##shortest note: 0.22 sec - 19 frames
+##largest difference in pitch in order to be considered the same note: 3
+
+
+
+##note, pitch, start_time, duration, value, midi_num, frame_indexes
+musical_notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+class NoteEvents:
+    def __init__(self, detected, pitch, frame_index, midi):
+        self.detected = detected
+        self.pitch = pitch
+        self.frame_indexes = []
+        self.start_time = 0
+        self.duration = 0
+        self.midi_num = midi
+        self.note_name = ""
+        self.confidence_list = []
+        self.confidence = 0
+        self.fret_positions = []
+        self.fret_position_to_midi_correspondence= []
+        self.octave_differences = []
+
+    def add_frame_index(self, frame_index):
+        self.frame_indexes.append(frame_index)
+        
+    def calc_start_time(self):
+        self.start_time = (512 * (self.frame_indexes[0]))/sample_rate
+
+    def calc_duration(self):
+        self.duration = (512 * len(self.frame_indexes))/sample_rate
+
+    def determine_note_value(self):
+        note_value = musical_notes[self.midi_num % 12] #uses modulo to calculate the note
+        octave = (self.midi_num // 12)-1 #-1 is used because smallest midi number, 0, corresponds to 'C-1'
+        self.note_name = f"{note_value}{octave}"
+
+    def add_confidence(self, confidence):
+        self.confidence_list.append(confidence)
+    def calc_average_confidence(self): #calculates the average confidence of a note
+        total = 0
+        try: # handles any case where confidence is not a proper numerical value
+            for x in self.confidence_list:
+                total += x
+            self.confidence = total/len(self.confidence_list)
+
+        except:
+            self.confidence = 0
+
+    def find_all_fret_positions(self, selected_strings, min_fret, max_fret, guitar_strings):
+        overall_min_fret_midi = selected_strings[0] + min_fret #minimum midinote in playable region
+        overall_max_fret_midi = selected_strings[len(selected_strings)-1] + max_fret #maximum midinote in playable region
+        possible_note_midi_nums = [] #list of all octaves of a note in playable region
+        temp_midi_num = self.midi_num # to avoid changing the actual midi number while adjusting the midi number used if the note isnt in the 4 by 7 area
+        while not ((temp_midi_num >= overall_min_fret_midi) and (temp_midi_num <= overall_max_fret_midi)): #runs if temp_midi_num not in 4 by 7 area
+            while temp_midi_num < overall_min_fret_midi:
+                temp_midi_num += 12 #adds 12 to increment into range if below range
+            while temp_midi_num > overall_max_fret_midi:
+                temp_midi_num -= 12 #subs 12 to decrement into range if above range
+        if abs(temp_midi_num - overall_min_fret_midi) <= abs(temp_midi_num - overall_max_fret_midi): # finds higher octaves if currently found midi_num is lowest in playable region
+            while temp_midi_num <= overall_max_fret_midi:
+                possible_note_midi_nums.append(temp_midi_num)
+                temp_midi_num += 12
+
+        elif abs(temp_midi_num - overall_max_fret_midi) <= abs(temp_midi_num - overall_min_fret_midi):# finds lower octaves if currently found midi_num is highest in playable region
+            while temp_midi_num >= overall_min_fret_midi:
+                possible_note_midi_nums.append(temp_midi_num)
+                temp_midi_num -= 12
+
+        else: #adds both ways to find octaves in both directions if note is in middle of range
+            while temp_midi_num >= overall_min_fret_midi:
+                possible_note_midi_nums.append(temp_midi_num)
+                temp_midi_num -= 12
+            temp_midi_num += 12
+            while temp_midi_num <= overall_max_fret_midi:
+                possible_note_midi_nums.append(temp_midi_num)
+                temp_midi_num += 12
+        possible_note_midi_nums = list(set(possible_note_midi_nums)) #set() removes any duplicates
+            
+         
+                
+        for string in selected_strings:#checks if note is playable in selected range on each string
+            string_min_fret_midi = string + min_fret #minimum playable note on said string
+            string_max_fret_midi = string +max_fret #maximum playable note on said string
+            for possible_note in possible_note_midi_nums: #checks if each possible octave can be played in the playable region of that string
+                if (possible_note >= string_min_fret_midi) and (possible_note <= string_max_fret_midi):#if in playable region
+                    string_number = 6 - guitar_strings.index(string)
+                    fret_number = possible_note - string
+                    string_fret_pair = (string_number,fret_number)
+                    self.fret_positions.append(string_fret_pair)
+                    self.fret_position_to_midi_correspondence.append(possible_note)#appends to a fret...corespondence list the midi num of the corresponding fretposition just appended in order to use for determining octave difference
+                    self.octave_differences.append(abs(self.midi_num - possible_note)/12)#appends to octave_differences list the octave difference for corresponding fret posiution
+
+        
+
+#add all frames to notevents, then create methods to calculate things like start time and use ooficial values and thresholds
+
+notes = []
+empty_list  = False
+silence_counter = 0
+for each in range(len(pitch_data)):
+    if not empty_list and note_detected[each] == True: #using new_note allows the code to ensure that atleast one value is in the list before it starts comparing with previous values, preventing errors while simultaneously allowing making of new note after silence or change in note
+        note_event = NoteEvents(note_detected[each], pitch_data[each], each, midi_num[each])
+        note_event.add_frame_index(each)
+        note_event.add_confidence(confidence[each])
+        notes.append(note_event)
+        empty_list = True
+
+    elif note_detected[each] == True: #using elif because else would include when note_detected = false
+        if midi_num[each] == midi_num[each-1] and silence_counter < 18:#if current note is the same as last one
+            notes[len(notes)-1].add_frame_index(each)#adds current frame index to list of frame indexes containing the same note in a contiguous run
+            notes[len(notes)-1].add_confidence(confidence[each])#adds current note confidence to use to calculate average confidence
+
+        elif (midi_num[each] != midi_num[each-1]) or (midi_num[each] == midi_num[each-1] and silence_counter >= 18): # current note != previous note or there is long enoigh silence such that a note has to be replayed
+                note_event = NoteEvents(note_detected[each], pitch_data[each], each, midi_num[each])
+                note_event.add_frame_index(each)
+                note_event.add_confidence(confidence[each])
+                notes.append(note_event)
+
+        silence_counter = 0
+
+    elif note_detected[each] == False :
+        silence_counter += 1 
+        
+## manipulating note list and adding attributes ##########################################################################################
+note_duration_list = []
+note_confidence_list = []
+for each_note in notes:
+    each_note.calc_duration()
+    note_duration_list.append(each_note.duration)
+    each_note.calc_average_confidence()
+    note_confidence_list.append(each_note.confidence)
+
+    
+
+minimum_duration = np.percentile(note_duration_list, 10)
+minimum_confidence = np.percentile(note_confidence_list, 55)
+note = []
+
+for each_note in notes:
+    if each_note.duration < minimum_duration or each_note.midi_num < 0 or each_note.confidence < minimum_confidence: #remove very short notes/low confidence notes which are likely noise and also removeany note with no or a wrong midi number that potentially still made it into the list
+        continue
+
+    else:  ## add attributes like start_time now that all npteEvents and their basic required details have been made then add that to an official note_list
+        each_note.calc_start_time()
+        each_note.determine_note_value()
+        note.append(each_note)
+
+
+
+      
+
+
+##Mapping to Fretboard
+##Logic: Take in 4 strings and 7 frets. Have a list of the open strings' midi numbers e.g [40, 45, 50, 55, 59, 64]
+##Then use user input to make list of selected string's midi numbers e.g [40,45,50,55]
+##Then calculate the minimum and maximum fret midi numbers by adding selected frets to midi number of selected strings
+##check if note midi number in range
+##if in range, calculate fret (you wuld already know the string as every selected string is being checked) by subtracting note midi num from open string midi num
+##if less than minimum fret then add 12 to midi num and check if in range (loop it so it chooses closest octave)
+## if greater than tmax then subtract 12 from midi num then check for note in range
+## maybe make FretPosition (a list) an attribute of noteevents then make a method that carries the above calculations and stores each position in the fretpositions lits attribute
+
+##Take input
+
+guitar_strings = [40, 45, 50, 55, 59, 64] #list of open strings' midi numbers
+first_string = 6
+string_index = 6 - first_string #index of fisrt string in sequence of strings
+
+selected_strings = []
+for x in range(6):##6,4,3
+    selected_strings.append(guitar_strings[string_index])#uses string_index to make list of selected strings
+    string_index +=1 #increments string index to point to next consecutive string
+
+min_fret = 0
+max_fret = min_fret + 24##24,6,4
+preferred_fret = 2#int(input("Enter the fret which you would prefer the notes centred around"))
+disliked_string_list =[]
+disliked_string = 'None'
+while disliked_string != "":
+    try: 
+        disliked_string = ""#int(input("Enter a string you would prefer not play on. If none just press enter"))
+    except:
+        disliked_string = ""
+    else:
+        disliked_string_list.append(disliked_string)
+
+for each_note in note:
+    each_note.find_all_fret_positions(selected_strings, min_fret, max_fret, guitar_strings)
+
+def cost_function(fret_distance, string_distance,octave_difference, fret, string, disliked_string_list, preferred_fret):
+    distance_from_preferred_fret = abs(preferred_fret - fret)
+    if string in disliked_string_list:
+        disliked_string_penalty = 1.5
+    else:
+        disliked_string_penalty = 0
+    cost = (1.5 * string_distance) + (1 * fret_distance) + (1.5 * octave_difference) + 0.2 * distance_from_preferred_fret + disliked_string_penalty 
+    if fret_distance == string_distance == 1: #rewards 1 by 1 diagonal moves
+        cost -= 1
+    if string_distance == 0: #rewards lack of string changes
+        cost -= 1
+    if string_distance >= 2:
+        cost += ((string_distance -1) * 0.5)
+    
+    
+    return cost
+
+###############################Greedy
+start_time = time.perf_counter()
+tab_solution = []
+current_fret_position = (0, 0)
+for x in range(len(note[0].fret_positions)):#determines and chooses lowest string as starting point
+    if current_fret_position[0] <= note[0].fret_positions[x][0]:
+        current_fret_position = note[0].fret_positions[x]
+
+
+tab_solution.append(current_fret_position)
+cost_list = []      
+for current in range(1, len(note)):
+    lowest_cost = 9999999999999999999999999999
+    best_position = 0
+    fret_position_index = 0 #incremented wjhile looping through fret positions in order to keep track of fret_position indexes without runing into posiibille issue if duplicate positions available. also costs less computationally
+    for fret_position in note[current].fret_positions:
+        fret_distance = abs(fret_position[1] - current_fret_position[1])
+        fret = fret_position[1]
+        string = fret_position[0]
+        string_distance = abs(fret_position[0] - current_fret_position[0])
+        octave_difference = note[current].octave_differences[fret_position_index]
+        current_cost = cost_function(fret_distance, string_distance, octave_difference, fret, string, disliked_string_list, preferred_fret)
+        fret_position_index += 1
+        if  current_cost < lowest_cost:
+            lowest_cost = current_cost
+            best_position = fret_position
+    current_fret_position = best_position
+    tab_solution.append(current_fret_position)
+end_time = time.perf_counter()
+print("Greedy Time:", end_time - start_time)
+################make ergonomic metrics
+total_string_jump_length = 0
+total_fret_jump_size = 0
+max_string_jump = 0
+max_fret_jump = 0
+diagonal_counter = 0
+same_string_time = 0
+for x in range(len(tab_solution)-1):
+    string_jump = abs(tab_solution[x][0] -tab_solution[x+1][0])
+    total_string_jump_length += string_jump
+    fret_jump = abs(tab_solution[x][1] -tab_solution[x+1][1])
+    total_fret_jump_size += fret_jump
+    if max_string_jump < string_jump:
+        max_string_jump = string_jump
+    if max_fret_jump < fret_jump:
+        max_fret_jump = fret_jump
+    if string_jump == fret_jump and fret_jump == 1:
+        diagonal_counter += 1
+    if string_jump == 0:
+        same_string_time += 1
+min_fret = float("inf")
+max_fret = - min_fret
+for solution in tab_solution:
+    if solution[1] > max_fret:
+        max_fret = solution[1]
+    if solution[1] < min_fret:
+        min_fret = solution[1]
+fret_range = max_fret - min_fret
+user_preferrence_variance = ((min_fret + max_fret)/2) - preferred_fret
+
+average_string_jump = total_string_jump_length/(len(tab_solution)-1)
+average_fret_jump = total_fret_jump_size/(len(tab_solution)-1)
+diagonal_to_movement_ratio = diagonal_counter/(len(tab_solution)-1)#measures ratio of 1 by 1 diagonal moves to total movement
+same_string_ratio = same_string_time/(len(tab_solution)-1)#measures string stability
+movement_cost = (average_string_jump**2 + average_fret_jump**2)**0.5 + 1.5*((max_fret_jump**2 + max_string_jump**2)**0.5) + 0.5 * fret_range
+smoothness_penalty = 1 - diagonal_to_movement_ratio
+string_instability_penalty = 1 - same_string_ratio
+user_preferrence_cost = user_preferrence_variance * 0.1
+ergonomic_cost = movement_cost + string_instability_penalty + smoothness_penalty - user_preferrence_cost
+ergonomic_score = round(100 - ergonomic_cost)
+
+
+print(len(tab_solution))
+print(tab_solution)
+print(ergonomic_score)
+print(average_string_jump, average_fret_jump, fret_range, user_preferrence_variance, max_string_jump, max_fret_jump, diagonal_to_movement_ratio, same_string_ratio)
+
+
+
+##Dynamic Programming logic
+start_time = time.perf_counter()
+position_paths = {
+
+}#stores current position as key and previous way of getting there as entry
+recent_moves = []
+for position in note[0].fret_positions:
+    cost = 0
+    key = (position, 0)
+    position_paths[key] = "None"
+    recent_moves.append((position, cost))#list of tuples containing previous note positions and costs to get there
+
+for current in range(1, len(note)):
+    fret_position_index = 0
+    temp_move_list = []
+    for position in note[current].fret_positions:
+        current_best_cost = float("inf")
+        for move in recent_moves:
+            fret_distance = abs(position[1] - move[0][1])
+            string_distance = abs(position[0] - move[0][0])
+            octave_difference = note[current].octave_differences[fret_position_index]
+            fret = position[1]
+            cumulative_cost = move[1] + cost_function(fret_distance, string_distance,octave_difference, fret, string, disliked_string_list, preferred_fret)
+            if cumulative_cost < current_best_cost:
+                current_best_cost = cumulative_cost
+                best_way = move#stores the psoition with the least cost to get to the current position
+            
+        key = (position, current)         
+        position_paths[key] = (best_way[0], current-1)
+        temp_move_list.append((position, current_best_cost))
+        fret_position_index += 1
+    recent_moves = temp_move_list.copy()
+tab_solution = []
+lowest_cost = float("inf")
+for move in recent_moves: 
+    if move[1] < lowest_cost:
+        lowest_cost = move[1]
+        key = (move[0], len(note)-1)
+tab_solution.append(key[0])
+while position_paths[key] != "None":
+    previous_position = position_paths[key]
+    tab_solution.append(previous_position[0])
+    key = previous_position
+tab_solution = tab_solution[::-1]
+end_time = time.perf_counter()
+print("Dynamic Programming Time:", end_time - start_time)
+
+
+
+################make ergonomic metrics
+total_string_jump_length = 0
+total_fret_jump_size = 0
+max_string_jump = 0
+max_fret_jump = 0
+diagonal_counter = 0
+same_string_time = 0
+for x in range(len(tab_solution)-1):
+    string_jump = abs(tab_solution[x][0] -tab_solution[x+1][0])
+    total_string_jump_length += string_jump
+    fret_jump = abs(tab_solution[x][1] -tab_solution[x+1][1])
+    total_fret_jump_size += fret_jump
+    if max_string_jump < string_jump:
+        max_string_jump = string_jump
+    if max_fret_jump < fret_jump:
+        max_fret_jump = fret_jump
+    if string_jump == fret_jump and fret_jump == 1:
+        diagonal_counter += 1
+    if string_jump == 0:
+        same_string_time += 1
+min_fret = float("inf")
+max_fret = - min_fret
+for solution in tab_solution:
+    if solution[1] > max_fret:
+        max_fret = solution[1]
+    if solution[1] < min_fret:
+        min_fret = solution[1]
+fret_range = max_fret - min_fret
+user_preferrence_variance = ((min_fret + max_fret)/2) - preferred_fret
+
+average_string_jump = total_string_jump_length/(len(tab_solution)-1)
+average_fret_jump = total_fret_jump_size/(len(tab_solution)-1)
+diagonal_to_movement_ratio = diagonal_counter/(len(tab_solution)-1)#measures ratio of 1 by 1 diagonal moves to total movement
+same_string_ratio = same_string_time/(len(tab_solution)-1)#measures string stability
+movement_cost = (average_string_jump**2 + average_fret_jump**2)**0.5 + 1.5*((max_fret_jump**2 + max_string_jump**2)**0.5) + 0.5 * fret_range
+smoothness_penalty = 1 - diagonal_to_movement_ratio
+string_instability_penalty = 1 - same_string_ratio
+user_preferrence_cost = user_preferrence_variance * 0.1
+ergonomic_cost = movement_cost + string_instability_penalty + smoothness_penalty - user_preferrence_cost
+ergonomic_score = round(100 - ergonomic_cost)
+
+
+print(len(tab_solution))
+print(tab_solution)
+print(ergonomic_score)
+print(average_string_jump, average_fret_jump, fret_range, user_preferrence_variance, max_string_jump, max_fret_jump, diagonal_to_movement_ratio, same_string_ratio)
