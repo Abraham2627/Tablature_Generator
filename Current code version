@@ -352,6 +352,7 @@ for current in range(1, len(note)):
             string_distance = abs(position[0] - move[0][0])
             octave_difference = note[current].octave_differences[fret_position_index]
             fret = position[1]
+            string = position[0]
             cumulative_cost = move[1] + cost_function(fret_distance, string_distance,octave_difference, fret, string, disliked_string_list, preferred_fret)
             if cumulative_cost < current_best_cost:
                 current_best_cost = cumulative_cost
