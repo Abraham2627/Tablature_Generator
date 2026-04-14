@@ -6,7 +6,7 @@ import math
 import time
 import numpy as np #to calculate percentiles for note durations. That way, the minimum diuration threshold can adapt to any song as some songs are fatser than others
 
-elements of instructions to be run in cmd prompt behind the scenes
+###elements of instructions to be run in cmd prompt behind the scenes
 audio_path = r"C:\Users\OLUWANIFEMI\Downloads\soykhaler-intro-guitar-385396.mp3" #stores location of audio to be split into stems
 command = ["demucs",
            "-n", "htdemucs",
