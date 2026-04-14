@@ -252,7 +252,7 @@ def cost_function(fret_distance, string_distance,octave_difference, fret, string
     return cost
 
 ###############################Greedy
-start_time = time.perf_counter()
+start_time = time.perf_counter()#######to time how long the greedy algorithm runs
 tab_solution = []
 current_fret_position = (0, 0)
 for x in range(len(note[0].fret_positions)):#determines and chooses lowest string as starting point
@@ -263,7 +263,7 @@ for x in range(len(note[0].fret_positions)):#determines and chooses lowest strin
 tab_solution.append(current_fret_position)
 cost_list = []      
 for current in range(1, len(note)):
-    lowest_cost = 9999999999999999999999999999
+    lowest_cost = float("inf")
     best_position = 0
     fret_position_index = 0 #incremented wjhile looping through fret positions in order to keep track of fret_position indexes without runing into posiibille issue if duplicate positions available. also costs less computationally
     for fret_position in note[current].fret_positions:
@@ -426,3 +426,5 @@ print(len(tab_solution))
 print(tab_solution)
 print(ergonomic_score)
 print(average_string_jump, average_fret_jump, fret_range, user_preferrence_variance, max_string_jump, max_fret_jump, diagonal_to_movement_ratio, same_string_ratio)
+
+########################################TODO make dictionaruy using string numbers as keys and entries will be notes played on those strings
