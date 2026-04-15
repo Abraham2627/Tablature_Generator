@@ -6,7 +6,38 @@ import math
 import time
 import numpy as np #to calculate percentiles for note durations. That way, the minimum diuration threshold can adapt to any song as some songs are fatser than others
 
-###elements of instructions to be run in cmd prompt behind the scenes
+def generate_ascii_tab(tab_solution):
+    tabs = {
+        "6" : "(6)-",
+        "5" : "(5)-",
+        "4" : "(5)-",
+        "3" : "(3)-",
+        "2" : "(2)-",
+        "1" : "(1)-"
+        
+}
+    for note in tab_solution:
+        current_string = note[0]
+        fret = note[1]
+        for string in range(1,7):
+            if current_string == string:
+                tabs[str(string)] = tabs[str(string)] +  str(fret) + "-"
+            else:
+                if fret > 9:
+                    tabs[str(string)] = tabs[str(string)] +  "---"
+                else:
+                    tabs[str(string)] = tabs[str(string)] +  "--"
+
+    ascii_tab = f'''{tabs["6"]}
+{tabs["5"]}
+{tabs["4"]}
+{tabs["3"]}
+{tabs["2"]}
+{tabs["1"]}
+'''
+    return ascii_tab
+
+##elements of instructions to be run in cmd prompt behind the scenes
 audio_path = r"C:\Users\OLUWANIFEMI\Downloads\soykhaler-intro-guitar-385396.mp3" #stores location of audio to be split into stems
 command = ["demucs",
            "-n", "htdemucs",
@@ -14,7 +45,7 @@ command = ["demucs",
            audio_path
 ] 
 subprocess.run(command) #calls command prompt behind the scenes to run demucs
-guitar_path = r"C:/Users/OLUWANIFEMI/Documents/Music app/separated/htdemucs/soykhaler-intro-guitar-385396/other.mp3" #stores path to other stem which contains the gutar or mostkly guitar audio
+guitar_path = r"C:\Users\OLUWANIFEMI\Documents\Music app\separated\htdemucs\creative_spark-acoustic-guitar-melody-2-358291\other.mp3" #stores path to other stem which contains the gutar or mostkly guitar audio
 waveform, sample_rate = torchaudio.load(guitar_path)
 print(waveform.shape) #waveform stores no_ of channels and and no) of samples in that order.
 print(sample_rate)
@@ -252,7 +283,7 @@ def cost_function(fret_distance, string_distance,octave_difference, fret, string
     return cost
 
 ###############################Greedy
-start_time = time.perf_counter()#######to time how long the greedy algorithm runs
+start_time = time.perf_counter()
 tab_solution = []
 current_fret_position = (0, 0)
 for x in range(len(note[0].fret_positions)):#determines and chooses lowest string as starting point
@@ -263,7 +294,7 @@ for x in range(len(note[0].fret_positions)):#determines and chooses lowest strin
 tab_solution.append(current_fret_position)
 cost_list = []      
 for current in range(1, len(note)):
-    lowest_cost = float("inf")
+    lowest_cost = 9999999999999999999999999999
     best_position = 0
     fret_position_index = 0 #incremented wjhile looping through fret positions in order to keep track of fret_position indexes without runing into posiibille issue if duplicate positions available. also costs less computationally
     for fret_position in note[current].fret_positions:
@@ -324,7 +355,7 @@ ergonomic_score = round(100 - ergonomic_cost)
 
 
 print(len(tab_solution))
-print(tab_solution)
+print(generate_ascii_tab(tab_solution))
 print(ergonomic_score)
 print(average_string_jump, average_fret_jump, fret_range, user_preferrence_variance, max_string_jump, max_fret_jump, diagonal_to_movement_ratio, same_string_ratio)
 
@@ -352,7 +383,6 @@ for current in range(1, len(note)):
             string_distance = abs(position[0] - move[0][0])
             octave_difference = note[current].octave_differences[fret_position_index]
             fret = position[1]
-            string = position[0]
             cumulative_cost = move[1] + cost_function(fret_distance, string_distance,octave_difference, fret, string, disliked_string_list, preferred_fret)
             if cumulative_cost < current_best_cost:
                 current_best_cost = cumulative_cost
@@ -423,8 +453,6 @@ ergonomic_score = round(100 - ergonomic_cost)
 
 
 print(len(tab_solution))
-print(tab_solution)
+print(generate_ascii_tab(tab_solution))
 print(ergonomic_score)
 print(average_string_jump, average_fret_jump, fret_range, user_preferrence_variance, max_string_jump, max_fret_jump, diagonal_to_movement_ratio, same_string_ratio)
-
-########################################TODO make dictionaruy using string numbers as keys and entries will be notes played on those strings
