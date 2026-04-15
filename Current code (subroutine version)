@@ -1,0 +1,29 @@
+import subprocess #to enable use of command prompt
+import torchaudio #provides basic info about audio
+import sounddevice as sd # imports soiund device which enables playing audio in python and saves it as somewhat of a variable called sd so typing it takes less time.
+import librosa #for handling pitch and identifing notes
+import math
+import time
+import numpy as np #to calculate percentiles for note durations. That way, the minimum diuration threshold can adapt to any song as some songs are fatser than others
+
+def split_audio():
+    ##elements of instructions to be run in cmd prompt behind the scenes
+    audio_path = r"C:\Users\OLUWANIFEMI\Downloads\creative_spark-acoustic-guitar-melody-2-358291.mp3" #stores location of audio to be split into stems
+    command = ["demucs",
+               "-n", "htdemucs",
+               "--mp3",
+               audio_path
+] 
+    subprocess.run(command) #calls command prompt behind the scenes to run demucs
+
+def play_audio():
+    guitar_path = r"C:\Users\OLUWANIFEMI\Documents\Music app\separated\htdemucs\creative_spark-acoustic-guitar-melody-2-358291\other.mp3" #stores path to other stem which contains the gutar or mostkly guitar audio
+    waveform, sample_rate = torchaudio.load(guitar_path)#waveform stores no_ of channels and and no) of samples in that order.
+    sd.play(waveform.T, sample_rate) #plays audio
+    sd.wait() #pauses python processes while audio is playing
+
+
+def main():
+
+if __name__ == "__main__":
+    main()
